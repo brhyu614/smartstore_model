@@ -151,13 +151,15 @@ def norm_extras(extras):
     return out[:6]
 
 
-def new_job(name, who, garment_dataurl, extras=None, graphic=False):
+def new_job(name, who, garment_dataurl, extras=None, graphic=False,
+            kind="", styling=None):
     jid = uuid.uuid4().hex[:12]
     with LOCK:
         JOBS[jid] = {
             "id": jid, "name": name, "who": who,
             "garment": garment_dataurl,
             "extras": norm_extras(extras), "graphic": bool(graphic),
+            "kind": kind or gs.guess_kind(name), "styling": styling or {},
             "poses": {}, "plan": list(REST),
             "cuts": {c: {"state": "idle", "err": "", "n": 0} for c in gs.CUTS},
             "bytes": {}, "outdir": os.path.join(OUTDIR, gs.safe_dir(name)),
@@ -210,7 +212,8 @@ def run_cut(job, cut):
                                  gs.model_desc(job["who"]), two,
                                  graphic=job.get("graphic"),
                                  extras=[e["view"] for e in extras],
-                                 pose=(job.get("poses") or {}).get(cut))
+                                 pose=(job.get("poses") or {}).get(cut),
+                                 styling=job.get("styling"), kind=job.get("kind"))
         blob = gs.generate(prompt, refs, gs.ASPECT[cut], SIZE, MODEL)
         job["bytes"][cut] = blob
         try:
@@ -252,6 +255,14 @@ def run_rest(jid):
         run_cut(job, cut)
         if job["cuts"][cut]["state"] == "error":
             break
+
+
+def apply_look(job, b):
+    """다시 뽑기 요청에 코디·제품 종류가 함께 왔으면 작업에 반영한다."""
+    if isinstance(b.get("styling"), dict):
+        job["styling"] = b["styling"]
+    if b.get("kind"):
+        job["kind"] = b["kind"]
 
 
 def spawn(fn, *a):
@@ -399,6 +410,9 @@ button:disabled{opacity:.45;cursor:default}
 .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
  border-top-color:var(--acc);border-radius:50%;animation:s .8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes s{to{transform:rotate(360deg)}}
+.look{margin-top:16px}
+.look>summary{font-weight:600;font-size:13.5px}
+.look .sum{font-weight:400;color:var(--dim);font-size:12.5px;margin-left:6px}
 .hide{display:none!important}
 code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--line);padding:2px 6px;border-radius:5px}
 </style></head><body><div class="wrap">
@@ -425,6 +439,15 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--
     <label class="togg"><input type="checkbox" id="gfx">
       프린트·로고가 있는 옷입니다 <span style="color:var(--dim)">(그래픽을 그대로 재현)</span></label>
   </div>
+
+  <details class="grp look" id="lookA">
+    <summary>코디 — 제품 말고 함께 입는 것 <span class="sum" id="sumA"></span></summary>
+    <div class="field" style="margin:12px 0 0">
+      <label>제품 종류 <span style="font-weight:400;color:var(--dim)">— 제품명으로 자동으로 잡습니다. 틀리면 고쳐 주세요</span></label>
+      <select id="kindA"></select>
+    </div>
+    <div id="sA"></div>
+  </details>
 
   <div class="saved">
     <label>저장된 모델</label>
@@ -469,6 +492,17 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--
       <label class="togg"><input type="checkbox" id="cBchk"> 대신 영어로 직접 묘사할게요</label>
       <textarea id="cB" class="hide" style="margin-top:8px"></textarea>
       <div class="prev" id="pB">…</div>
+
+      <details class="grp look" id="lookB">
+        <summary>코디 <span class="sum" id="sumB"></span></summary>
+        <div class="field" style="margin:12px 0 0">
+          <label>제품 종류</label><select id="kindB"></select>
+        </div>
+        <div id="sB"></div>
+        <div class="note" style="margin-top:10px">코디를 바꾸면 <b>대표컷부터 다시</b> 뽑아야
+          나머지 컷에 반영됩니다. 아래 [이 모델로 나머지 컷] 대신 [모델 바꿔서 다시]를 누르세요.</div>
+      </details>
+
       <label style="margin-top:18px">만들 컷과 포즈 고르기</label>
       <div id="plan" class="plan"></div>
       <div class="btns">
@@ -602,7 +636,8 @@ $("mload").onclick=()=>{
   fetch("/api/models").then(r=>r.json()).then(async list=>{
     const m=list.find(x=>x.name===n); if(!m)return;
     const r=await fetch("/api/model_get?name="+encodeURIComponent(n));
-    const who=(await r.json()).who;
+    const got=await r.json(), who=got.who;
+    setLook("sA",got.styling);
     if(typeof who==="string"){ $("cAchk").checked=true; $("cA").value=who;
       $("cA").classList.remove("hide"); $("tA").classList.add("hide"); preview("tA"); return; }
     $("cAchk").checked=false; $("cA").classList.add("hide"); $("tA").classList.remove("hide");
@@ -629,7 +664,8 @@ async function doSave(nameEl, who, jobId){
   const name=$(nameEl).value.trim();
   if(!name){alert("이름을 적어주세요.");return;}
   const r=await fetch("/api/model_save",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({name,who,job:jobId||null})});
+    body:JSON.stringify({name,who,job:jobId||null,
+      styling:pickLook(jobId?"sB":"sA").styling})});
   const j=await r.json();
   if(!j.ok){alert(j.error||"저장 실패");return;}
   $(nameEl).value="";
@@ -638,6 +674,73 @@ async function doSave(nameEl, who, jobId){
 }
 $("msave").onclick=()=>doSave("mname",pick("tA"));
 $("msave2").onclick=()=>doSave("mname2",pick("tB"),job);
+
+// ---------- 코디 패널 (sA = 1단계, sB = 2단계)
+let SY=null;
+function buildLook(P,host,kindSel){
+  host.innerHTML=SY.groups.map(g=>
+    `<div class="traits" style="margin-top:12px">
+       <div class="wide" style="color:var(--dim);font-size:12px;margin-bottom:-4px">${esc(g.title)}</div>
+       ${g.items.map(it=>ctl(P,it)).join("")}</div>`).join("");
+  kindSel.innerHTML=SY.kinds.map(k=>`<option>${esc(k)}</option>`).join("");
+  host.querySelectorAll("select,input").forEach(el=>
+    el.addEventListener("change",()=>syncLook(P)));
+  kindSel.onchange=()=>syncLook(P);
+  syncLook(P);
+}
+// 제품 종류에 따라 충돌하는 슬롯을 감추고, 요약 한 줄을 갱신한다
+function syncLook(P){
+  const kind=$(P==="sA"?"kindA":"kindB").value;
+  const hide=(SY.hide[kind]||[]);
+  const worn=[];
+  SY.groups.forEach(g=>g.items.forEach(it=>{
+    const el=$(P+"-"+it.key); if(!el)return;
+    const box=el.closest("div.wide")||el.closest("div");
+    if(box)box.classList.toggle("hide",hide.includes(it.key));
+    if(hide.includes(it.key))return;
+    if(it.type==="multi"){
+      [...el.querySelectorAll("input:checked")].forEach(c=>worn.push(c.value));
+    }else if(el.value && el.value!=="AI가 알아서" && el.value!=="없음" && el.value!=="안 보이게"){
+      worn.push(el.value.replace(/^기본 — /,""));
+    }
+  }));
+  $(P==="sA"?"sumA":"sumB").textContent = worn.length? "· "+worn.slice(0,4).join(", ")
+    + (worn.length>4?" 외 "+(worn.length-4):"") : "";
+}
+function pickLook(P){
+  const kind=$(P==="sA"?"kindA":"kindB").value;
+  const hide=(SY.hide[kind]||[]), o={};
+  SY.groups.forEach(g=>g.items.forEach(it=>{
+    if(hide.includes(it.key))return;
+    const el=$(P+"-"+it.key); if(!el)return;
+    if(it.type==="multi"){
+      const v=[...el.querySelectorAll("input:checked")].map(c=>c.value);
+      if(v.length)o[it.key]=v;
+    }else if(el.value) o[it.key]=el.value;
+  }));
+  return {kind,styling:o};
+}
+function setLook(P,styling){
+  if(!SY||!styling)return;
+  SY.groups.forEach(g=>g.items.forEach(it=>{
+    const el=$(P+"-"+it.key); if(!el)return;
+    const v=styling[it.key];
+    if(it.type==="multi"){
+      const on=Array.isArray(v)?v:[];
+      el.querySelectorAll("input").forEach(c=>c.checked=on.includes(c.value));
+    }else if(v!==undefined) el.value=v;
+  }));
+  syncLook(P);
+}
+// 제품명을 적으면 종류를 짐작해서 채운다 (사용자가 손대기 전까지만)
+let kindTouched=false;
+async function guessKind(){
+  if(kindTouched||!SY)return;
+  const n=$("name").value.trim(); if(!n)return;
+  const r=await fetch("/api/kind?name="+encodeURIComponent(n));
+  const k=(await r.json()).kind;
+  if(k && $("kindA").value!==k){$("kindA").value=k;syncLook("sA");}
+}
 
 let CLOUD=false;
 function refreshWhere(){
@@ -661,6 +764,11 @@ function refreshWhere(){
   });
 }
 refreshWhere();
+fetch("/api/styling").then(r=>r.json()).then(s=>{
+  SY=s; buildLook("sA",$("sA"),$("kindA")); buildLook("sB",$("sB"),$("kindB"));
+  $("kindA").addEventListener("change",()=>kindTouched=true);
+  $("name").addEventListener("blur",guessKind);
+});
 fetch("/api/traits").then(r=>r.json()).then(g=>{
   G=g; build("tA",$("tA")); build("tB",$("tB")); preview("tA"); preview("tB");
   refreshSaved();
@@ -733,10 +841,13 @@ $("go").onclick=async()=>{
   const r=await fetch("/api/start",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({name:$("name").value.trim(),who,image:img,
       graphic:$("gfx").checked,
-      extras:extras.map(e=>({view:e.view,url:e.url}))})});
+      extras:extras.map(e=>({view:e.view,url:e.url})),
+      ...pickLook("sA")})});
   const j=await r.json();
   if(!j.ok){show($("err1"),j.error);$("go").disabled=false;return;}
   job=j.id;
+  $("kindB").value=$("kindA").value;          // 1단계 코디를 2단계로 옮겨 둔다
+  setLook("sB",pickLook("sA").styling);
   G.forEach(g=>g.items.forEach(it=>{
     const a=$("tA-"+it.key), b=$("tB-"+it.key); if(!a||!b)return;
     if(it.type==="multi"){
@@ -815,7 +926,7 @@ async function redo(){
     <span><span class="spin"></span>만드는 중…</span></div>`;
   show($("err2"),"");
   await fetch("/api/redo",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({id:job,who})});
+    body:JSON.stringify({id:job,who,...pickLook("sB")})});
   poll();
 }
 $("ok").onclick=async()=>{
@@ -837,7 +948,7 @@ $("grid").addEventListener("click", async e=>{
   const {poses}=plan();
   const body={id:job,cut};
   if(poses[cut]!==undefined) body.pose=poses[cut];
-  if(cut==="hero") body.who=pick("tB");
+  if(cut==="hero"){ body.who=pick("tB"); Object.assign(body,pickLook("sB")); }
   const r=await fetch("/api/redo_cut",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)});
   const j=await r.json();
@@ -972,7 +1083,7 @@ class H(BaseHTTPRequestHandler):
         if path.startswith("/api/model_get"):
             q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
             name = (q.get("name") or [""])[0]
-            return self.js({"who": gs.get_model(name)})
+            return self.js({"who": gs.get_model(name), "styling": gs.get_look(name)})
 
         if path == "/api/where":
             d = {"outdir": OUTDIR, "cloud": need_auth()}
@@ -981,6 +1092,13 @@ class H(BaseHTTPRequestHandler):
 
         if path == "/api/views":
             return self.js(gs.VIEW_ORDER)
+
+        if path == "/api/styling":
+            return self.js(gs.styling_traits_json())
+
+        if path.startswith("/api/kind"):
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            return self.js({"kind": gs.guess_kind((q.get("name") or [""])[0])})
 
         if path == "/api/traits":
             return self.js(gs.traits_json())
@@ -1072,7 +1190,8 @@ class H(BaseHTTPRequestHandler):
             if not img.startswith("data:image/"):
                 return self.js({"ok": False, "error": "이미지를 읽지 못했습니다."})
             jid = new_job(b.get("name", "").strip() or "product",
-                          b.get("who") or "", img, b.get("extras"), b.get("graphic"))
+                          b.get("who") or "", img, b.get("extras"), b.get("graphic"),
+                          b.get("kind") or "", b.get("styling") or {})
             spawn(run_hero, jid)
             return self.js({"ok": True, "id": jid})
 
@@ -1082,7 +1201,8 @@ class H(BaseHTTPRequestHandler):
                 jid = b.get("job")
                 if jid and jid in JOBS:
                     thumb = JOBS[jid]["bytes"].get("hero")
-                name = gs.save_model(b.get("name"), b.get("who"), thumb)
+                name = gs.save_model(b.get("name"), b.get("who"), thumb,
+                                     b.get("styling") or {})
                 return self.js({"ok": True, "name": name})
             except Exception as e:
                 return self.js({"ok": False, "error": str(e)[:200]})
@@ -1100,6 +1220,7 @@ class H(BaseHTTPRequestHandler):
             jid = b.get("id", "")
             if jid not in JOBS:
                 return self.js({"ok": False, "error": "작업을 찾을 수 없습니다."}, 404)
+            apply_look(JOBS[jid], b)
             spawn(run_hero, jid, b.get("who"))
             return self.js({"ok": True})
 
@@ -1108,6 +1229,7 @@ class H(BaseHTTPRequestHandler):
             if jid not in JOBS or cut not in gs.CUTS:
                 return self.js({"ok": False, "error": "다시 뽑을 컷을 찾을 수 없습니다."}, 404)
             job = JOBS[jid]
+            apply_look(job, b)
             pose = b.get("pose")
             if isinstance(pose, dict) or (isinstance(pose, str) and pose):
                 job.setdefault("poses", {})[cut] = pose

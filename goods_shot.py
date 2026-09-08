@@ -191,6 +191,14 @@ def pose_traits_json():
     return pt.traits_json()
 
 
+def styling_traits_json():
+    return sy.traits_json()
+
+
+def guess_kind(name):
+    return sy.guess_kind(name)
+
+
 def poses_json():
     return [{"cut": c, "label": POSE_LABEL[c], "options": list(POSES[c])}
             for c in ["wear", "side", "close", "detail", "thumb"]]
@@ -218,14 +226,14 @@ def _write_models(d):
         json.dump(d, f, ensure_ascii=False, indent=2)
 
 
-def save_model(name, who, thumb=None):
-    """이름으로 저장. thumb 은 대표컷 이미지 바이트(선택)."""
+def save_model(name, who, thumb=None, look=None):
+    """이름으로 저장. thumb 은 대표컷 이미지 바이트(선택), look 은 코디 선택(선택)."""
     name = safe_dir(str(name or "").strip())
     if not name:
         raise ValueError("이름을 적어주세요.")
     d = load_models()
     d[name] = {"who": who, "저장": time.strftime("%Y-%m-%d %H:%M"),
-               "묘사": model_desc(who)}
+               "묘사": model_desc(who), "코디": look or {}}
     if thumb:
         os.makedirs(STORE_THUMBS, exist_ok=True)
         with open(os.path.join(STORE_THUMBS, name + ".png"), "wb") as f:
@@ -252,10 +260,15 @@ def get_model(name):
     return (load_models().get(name) or {}).get("who")
 
 
+def get_look(name):
+    return (load_models().get(name) or {}).get("코디") or {}
+
+
 # ================================================================ 인물 조합표
 # 축·선택지·문장 조립은 model_traits.py 에 있다 (같은 폴더).
 import model_traits as mt                                    # noqa: E402
 import pose_traits as pt                                     # noqa: E402
+import styling_traits as sy                                  # noqa: E402
 
 AXES = mt.AXES
 GROUPS = mt.GROUPS
@@ -410,9 +423,11 @@ WITH_MODEL = {"hero": True, "wear": True, "side": True, "close": True,
               "detail": False, "thumb": False}
 
 
-def build_prompt(cut, product, model, two_refs, graphic=False, extras=0, pose=None):
+def build_prompt(cut, product, model, two_refs, graphic=False, extras=0, pose=None,
+                 styling=None, kind=None):
     """pose 는 포즈 이름(문자열) 또는 관절 단위 선택(dict) 둘 다 받는다.
-    extras 는 추가 사진 개수(정수) 또는 사진 종류 목록(['뒷면','디테일' …]) 둘 다 받는다."""
+    extras 는 추가 사진 개수(정수) 또는 사진 종류 목록(['뒷면','디테일' …]) 둘 다 받는다.
+    styling 은 코디 선택 dict, kind 는 제품 종류(상의/하의/원피스 …)."""
     child = "child model" in (model or "")
     shot = SHOTS[cut]
     pose_spec = ""
@@ -428,6 +443,11 @@ def build_prompt(cut, product, model, two_refs, graphic=False, extras=0, pose=No
     parts.append("PRODUCT: " + product + ".")
     if WITH_MODEL[cut]:
         parts += ["MODEL: " + model + ".", ID_LOCK]
+        # 코디는 모델이 나오는 컷에만 (디테일·썸네일은 제품만 찍는다)
+        if styling:
+            look = sy.compose(styling, kind)
+            if look:
+                parts.append(look)
     if two_refs:
         parts.append(SECOND_REF)
     views = (["기타"] * extras) if isinstance(extras, int) else list(extras or [])
@@ -619,6 +639,13 @@ def main():
     ap.add_argument("--extra", nargs="*", default=[], metavar="[종류=]경로",
                     help="옷 사진 추가 (앞/뒤/옆/디테일 등, 여러 장). "
                          "예: --extra 뒷면=back.jpg 디테일=cuff.jpg")
+    ap.add_argument("--kind", default="", choices=[""] + sy.KIND_ORDER,
+                    help="제품 종류. 비우면 제품명으로 짐작합니다")
+    ap.add_argument("--wear", nargs="*", default=[], metavar="슬롯=값",
+                    help='코디. 예: --wear 하의="검정 슬랙스" 신발="검정 로퍼"')
+    ap.add_argument("--no-styling", action="store_true",
+                    help="코디를 아예 지정하지 않습니다 (AI가 알아서)")
+    ap.add_argument("--list-wear", action="store_true", help="코디 선택지를 보여줍니다")
     ap.add_argument("--sleep", type=float, default=1.5)
     args = ap.parse_args()
 
@@ -627,6 +654,18 @@ def main():
         for c in ["wear", "side", "close", "detail", "thumb"]:
             print("  %-8s %-12s %s" % (c, POSE_LABEL[c], " / ".join(POSES[c])))
         print('\n예)  --pose wear=한 발 앞으로 side=뒷모습 thumb=행거')
+        return
+
+    if args.list_wear:
+        print("\n코디 선택지  ( --wear 슬롯=\"값\" )\n")
+        print("제품 종류 (--kind): %s\n" % " / ".join(sy.KIND_ORDER))
+        for g in sy.GROUPS:
+            print("── %s" % g["title"])
+            for k in g["keys"]:
+                s = sy.BY_KEY[k]
+                print("   %-6s %s" % (s["key"], " / ".join(s["options"])))
+        print('\n예)  --kind 상의 --wear 하의="검정 슬랙스" 신발="검정 로퍼"')
+        print("고르지 않은 슬롯은 위 목록의 첫 항목(기본값)이 들어갑니다.")
         return
 
     if args.list_saved:
@@ -733,6 +772,19 @@ def main():
             else:
                 print("    · 추가 사진을 찾지 못했습니다: %s" % ep)
         graphic = args.graphic or (j.get("프린트") or "").upper() in ("Y", "YES", "TRUE", "1", "O", "있음")
+
+        # 코디 (--kind / --wear, 비우면 제품명으로 종류를 짐작하고 기본 코디를 쓴다)
+        kind = args.kind or (j.get("종류") or "").strip() or guess_kind(j["제품명"])
+        styling = None
+        if not args.no_styling:
+            styling = {}
+            for item in args.wear:
+                k, _, v = item.partition("=")
+                k, v = k.strip(), v.strip()
+                if k not in sy.BY_KEY or not v:
+                    continue
+                styling[k] = [x.strip() for x in v.split(";")] if k == "액세서리" else v
+            print("    · 코디: 제품=%s" % kind)
         hero_ref = ""                      # ②③④ 가 쓸 대표컷 참조
 
         # 이미 만들어 둔 대표컷이 있으면 참조로 재사용
@@ -761,7 +813,8 @@ def main():
             refs += extra_refs
             prompt = build_prompt(cut, clean(j["제품명"]), mdesc, two,
                                   graphic=graphic, extras=extra_views,
-                                  pose=posemap.get(cut))
+                                  pose=posemap.get(cut),
+                                  styling=styling, kind=kind)
 
             print("    · %s 생성 중…" % LABEL[cut], end=" ", flush=True)
             t0 = time.time()
