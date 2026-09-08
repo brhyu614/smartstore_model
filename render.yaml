@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: goods-shot
+    runtime: python
+    plan: free             # 0원. 15분 놀면 잠들고 다음 접속 때 1분쯤 걸립니다.
+                           # 그게 거슬리면 starter (월 7달러) 로 바꾸세요.
+    region: singapore
+    buildCommand: "echo 표준 라이브러리만 쓰므로 설치할 것이 없습니다"
+    startCommand: "python3 goods_web.py"
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: OPENROUTER_API_KEY
+        sync: false        # Render 대시보드에서 직접 넣습니다 (코드에 절대 넣지 마세요)
+      - key: APP_PASSWORD
+        sync: false        # 팀 공용 비밀번호
+      - key: APP_SECRET
+        generateValue: true
+      - key: DAILY_LIMIT
+        value: "40"        # 하루에 만들 수 있는 이미지 장수 (익숙해지면 올리세요)
+      - key: MAX_JOBS
+        value: "4"         # 무료는 램이 512MB뿐이라 넉넉히 잡으면 죽습니다
+      - key: SESSION_HOURS
+        value: "12"
+      - key: IMAGE_SIZE
+        value: "1K"

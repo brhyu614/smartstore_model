@@ -1,0 +1,12 @@
+# 절대 올라가면 안 되는 것
+.env
+*.key
+secrets*
+
+# 생성물·캐시
+생성결과/
+saved_models/
+saved_models.json
+__pycache__/
+*.pyc
+.DS_Store
