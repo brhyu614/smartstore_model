@@ -3,10 +3,24 @@
 *.key
 secrets*
 
-# 생성물·캐시
+# 생성물 (코드가 아니라 결과물입니다. 서버에 올릴 필요 없습니다)
 생성결과/
+옷사진/
+out/
+**/out/
+results.csv
+**/results.csv
+
+# 원본 사진·모델 저장함
 saved_models/
 saved_models.json
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.heic
+
+# 캐시
 __pycache__/
 *.pyc
 .DS_Store
