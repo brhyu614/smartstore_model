@@ -554,6 +554,58 @@ def generate(prompt, refs, aspect, size, model, timeout=420, tries=3):
     raise RuntimeError("반복 실패: " + last)
 
 
+OR_CHAT = "https://openrouter.ai/api/v1/chat/completions"
+TEXT_MODEL = os.environ.get("TEXT_MODEL", "google/gemini-3.8-flash")
+
+
+def chat(system, user, model=None, timeout=120, tries=3):
+    """OpenRouter 로 글 한 번. JSON 객체를 돌려준다. 이미지보다 훨씬 싸다."""
+    if not OR_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY 가 비어 있습니다.")
+    payload = {"model": model or TEXT_MODEL,
+               "messages": [{"role": "system", "content": system},
+                            {"role": "user", "content": user}],
+               "temperature": 0.3,
+               "response_format": {"type": "json_object"}}
+    headers = {"Authorization": "Bearer " + OR_KEY,
+               "Content-Type": "application/json"}
+    last = ""
+    for attempt in range(1, tries + 1):
+        try:
+            obj = post_json(OR_CHAT, payload, headers, timeout)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:400]
+            if e.code in (408, 409, 429, 500, 502, 503, 504) and attempt < tries:
+                last = "%s %s" % (e.code, body[:120]); time.sleep(2 * attempt); continue
+            raise RuntimeError("OpenRouter %s: %s" % (e.code, body))
+        except Exception as e:
+            if attempt < tries:
+                last = "%s: %s" % (type(e).__name__, e); time.sleep(2 * attempt); continue
+            raise RuntimeError("요청 실패: %s: %s" % (type(e).__name__, str(e)[:200]))
+        err = obj.get("error")
+        if isinstance(err, dict):
+            raise RuntimeError("OpenRouter 오류: " + str(err.get("message"))[:300])
+        try:
+            txt = obj["choices"][0]["message"]["content"]
+        except Exception:
+            if attempt < tries:
+                last = json.dumps(obj, ensure_ascii=False)[:150]; time.sleep(2); continue
+            raise RuntimeError("답이 오지 않았습니다.")
+        try:
+            return json.loads(txt)
+        except Exception:
+            m = re.search(r"\{.*\}", txt, re.S)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    pass
+            if attempt < tries:
+                last = txt[:150]; time.sleep(1); continue
+            raise RuntimeError("답을 읽지 못했습니다: " + txt[:200])
+    raise RuntimeError("반복 실패: " + last)
+
+
 def imgbb_upload(blob, name):
     if not IMGBB_KEY:
         return ""
@@ -663,7 +715,26 @@ def main():
             print("── %s" % g["title"])
             for k in g["keys"]:
                 s = sy.BY_KEY[k]
-                print("   %-6s %s" % (s["key"], " / ".join(s["options"])))
+                print("   %s" % s["key"])
+                if s.get("type") == "cascade":
+                    for c in s["cats"]:
+                        print("      · %-12s %s" % (c["title"], " / ".join(c["options"])))
+                    seen = []
+                    for c in s["cats"]:            # 값이 같은 축은 한 번만 적는다
+                        for a in c["axes"]:
+                            sig = (a["key"], tuple(a["options"]))
+                            hit = next((x for x in seen if x[0] == sig), None)
+                            if hit:
+                                hit[1].append(c["title"])
+                            else:
+                                seen.append((sig, [c["title"]]))
+                    for (ak, opts), cats in seen:
+                        print("      %s.%s = %s   (%s)"
+                              % (s["key"], ak, " / ".join(opts), "·".join(cats)))
+                else:
+                    for sub in (s.get("optgroups") or [{"title": "", "options": s["options"]}]):
+                        head = ("· %s" % sub["title"]) if sub["title"] else "·"
+                        print("      %-12s %s" % (head, " / ".join(sub["options"])))
         print('\n예)  --kind 상의 --wear 하의="검정 슬랙스" 신발="검정 로퍼"')
         print("고르지 않은 슬롯은 위 목록의 첫 항목(기본값)이 들어갑니다.")
         return
@@ -781,7 +852,8 @@ def main():
             for item in args.wear:
                 k, _, v = item.partition("=")
                 k, v = k.strip(), v.strip()
-                if k not in sy.BY_KEY or not v:
+                slot = k.split(".")[0]           # "하의" 또는 "하의.핏"
+                if slot not in sy.BY_KEY or not v:
                     continue
                 styling[k] = [x.strip() for x in v.split(";")] if k == "액세서리" else v
             print("    · 코디: 제품=%s" % kind)

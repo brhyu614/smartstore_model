@@ -43,6 +43,10 @@ try:
     import goods_shot as gs
 except ImportError:
     sys.exit("goods_shot.py 를 찾지 못했습니다. 두 파일을 같은 폴더에 두고 실행하세요.")
+try:
+    import chat_agent as ca
+except ImportError:
+    ca = None            # 없어도 화면은 그대로 돌아간다. 대화창만 안 뜬다.
 
 JOBS = {}
 LOCK = threading.Lock()
@@ -274,14 +278,18 @@ LOGIN = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>상세페이지 이미지 만들기 · 로그인</title>
 <style>
-:root{--bg:#faf9f7;--fg:#1c1917;--dim:#78716c;--card:#fff;--line:#e7e5e4;
-      --acc:#c2410c;--bad:#b91c1c;color-scheme:light dark}
-@media(prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#e7e5e4;--dim:#a8a29e;
-      --card:#1c1917;--line:#292524;--acc:#ea580c;--bad:#f87171}}
+@font-face{font-family:"Pretendard";src:url("/pretendard.woff2") format("woff2");
+ font-weight:400 700;font-style:normal;font-display:swap}
+:root{--bg:#f4f6fb;--fg:#141a2e;--dim:#6b7488;--card:#fff;--line:#e4e9f2;
+      --acc:#4b62ed;--acc2:#9660ee;--accsoft:#edeffe;--bad:#e11d48;
+      color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0e18;--fg:#e7ebf4;--dim:#949db4;
+      --card:#141926;--line:#232a3b;--acc:#7c8cf8;--acc2:#b47cf5;--accsoft:#1b2142;
+      --bad:#fb7185}}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
  background:var(--bg);color:var(--fg);padding:24px;
- font:15px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
+ font:15px/1.6 Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .box{width:100%;max-width:360px;background:var(--card);border:1px solid var(--line);
  border-radius:16px;padding:30px 26px}
 h1{font-size:19px;margin:0 0 6px}
@@ -314,13 +322,17 @@ PAGE = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>상세페이지 이미지 만들기</title>
 <style>
-:root{--bg:#faf9f7;--fg:#1c1917;--dim:#78716c;--card:#fff;--line:#e7e5e4;
-      --acc:#c2410c;--bad:#b91c1c;--soft:#f5f5f4;color-scheme:light dark}
-@media(prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#e7e5e4;--dim:#a8a29e;
-      --card:#1c1917;--line:#292524;--acc:#ea580c;--bad:#f87171;--soft:#1c1917}}
+@font-face{font-family:"Pretendard";src:url("/pretendard.woff2") format("woff2");
+ font-weight:400 700;font-style:normal;font-display:swap}
+:root{--bg:#f4f6fb;--fg:#141a2e;--dim:#6b7488;--card:#fff;--line:#e4e9f2;
+      --acc:#4b62ed;--acc2:#9660ee;--accsoft:#edeffe;--bad:#e11d48;--soft:#edf0f7;
+      color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0e18;--fg:#e7ebf4;--dim:#949db4;
+      --card:#141926;--line:#232a3b;--acc:#7c8cf8;--acc2:#b47cf5;--accsoft:#1b2142;
+      --bad:#fb7185;--soft:#141926}}
 *{box-sizing:border-box}
 body{margin:0;padding:28px 20px 60px;background:var(--bg);color:var(--fg);
- font:15px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+ font:15px/1.6 Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .wrap{max-width:1060px;margin:0 auto}
 h1{font-size:22px;margin:0 0 4px;letter-spacing:-.02em}
 .sub{color:var(--dim);font-size:13px;margin-bottom:24px}
@@ -386,8 +398,9 @@ details.fine>div{padding:0 12px 14px 40px}
 .thumbs select{margin-top:5px;padding:4px 6px;font-size:11.5px;width:100%}
 .thumbs button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;padding:0;
  border-radius:50%;font:700 12px/1 inherit;background:var(--bad)}
-button{padding:11px 20px;border:0;border-radius:10px;background:var(--acc);color:#fff;
- font:600 14px/1 inherit;cursor:pointer}
+button{padding:11px 20px;border:0;border-radius:10px;color:#fff;cursor:pointer;
+ background:linear-gradient(135deg,var(--acc),var(--acc2));font:600 14px/1 inherit}
+button:hover{filter:brightness(1.06)}
 button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
 button.mini{padding:6px 12px;font-size:12.5px}
 button:disabled{opacity:.45;cursor:default}
@@ -395,21 +408,83 @@ button:disabled{opacity:.45;cursor:default}
 .hero{display:grid;grid-template-columns:290px 1fr;gap:22px;align-items:start}
 @media(max-width:820px){.hero{grid-template-columns:1fr}}
 .hero img{width:100%;border-radius:12px;border:1px solid var(--line);display:block}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px;margin-top:6px}
-.tile{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
-.tile .ph{aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;
- color:var(--dim);font-size:12.5px;background:var(--soft);text-align:center;padding:10px}
-.tile img{width:100%;display:block}
-.tile .cap{padding:8px 10px;font-size:12.5px;color:var(--dim);display:flex;justify-content:space-between;gap:6px}
-.tile a{color:var(--acc);text-decoration:none}
-.tile .capr{display:flex;gap:8px;align-items:center}
-.tile .re{padding:3px 9px;font-size:11.5px;background:transparent;color:var(--acc);
- border:1px solid var(--line);border-radius:999px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(186px,1fr));gap:14px;margin-top:6px}
+.tile{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card);
+ display:flex;flex-direction:column}
+/* 컷마다 비율이 달라도(2:3, 1:1) 칸 높이는 같게. 잘라내지 않고 안에 맞춘다 */
+.tile .shot{aspect-ratio:4/5;background:var(--soft);display:flex;align-items:center;
+ justify-content:center;overflow:hidden}
+.tile .shot img{max-width:100%;max-height:100%;width:auto;height:auto;display:block}
+.tile .ph{color:var(--dim);font-size:12.5px;text-align:center;padding:10px}
+.tile .cap{padding:9px 11px 10px;border-top:1px solid var(--line);margin-top:auto}
+.tile .cap b{display:block;font-size:12.5px;font-weight:600;color:var(--fg);
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .capr{display:flex;gap:7px;align-items:center;margin-top:6px}
+.tile a{color:var(--acc);text-decoration:none;font-size:11.5px;white-space:nowrap}
+.tile .re{padding:3px 10px;font-size:11.5px;background:transparent;color:var(--acc);
+ border:1px solid var(--line);border-radius:999px;white-space:nowrap;margin-left:auto}
 .err{color:var(--bad);font-size:13px;margin-top:10px;white-space:pre-wrap;word-break:break-word}
 .note{color:var(--dim);font-size:12.5px;margin-top:12px}
 .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
  border-top-color:var(--acc);border-radius:50%;animation:s .8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes s{to{transform:rotate(360deg)}}
+/* 대화 입력기 — 화면을 대체하지 않고 화면을 채운다 */
+#chatbar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--card);
+ border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(0,0,0,.07)}
+#chatbar .cwrap{max-width:1000px;margin:0 auto;padding:12px 18px 10px}
+#chatbar .crow{display:flex;gap:8px;align-items:center}
+#chatbar input{flex:1;padding:11px 13px;font-size:14px}
+#chatbar .chint{font-size:11.5px;color:var(--dim);margin-top:6px}
+#chatopen{position:fixed;right:20px;bottom:20px;z-index:51;border-radius:999px;
+ padding:12px 20px;font-size:13.5px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+body.chaton{padding-bottom:128px}
+#chatlog{max-height:min(210px,32vh);overflow-y:auto;margin-bottom:10px;padding-right:4px}
+#chatlog .m{margin-bottom:8px;font-size:13px;line-height:1.5}
+#chatlog .me{text-align:right}
+#chatlog .me span{display:inline-block;background:var(--acc);color:#fff;
+ padding:7px 12px;border-radius:14px 14px 4px 14px;max-width:78%;text-align:left}
+#chatlog .ai span{display:inline-block;background:var(--soft);color:var(--fg);
+ padding:7px 12px;border-radius:14px 14px 14px 4px;max-width:85%;
+ border:1px solid var(--line)}
+#chatlog .ai.bad span{color:var(--bad)}
+#chatlog .ask span{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+#chatlog .ask button{padding:5px 12px;font-size:12px;border-radius:999px}
+/* 눌러서 고르는 칩 — 타이핑과 스크롤을 줄인다 */
+#chatlog .krow{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;max-width:88%}
+.kchip{display:inline-flex;align-items:center;gap:6px;max-width:100%;
+ padding:4px 11px;border-radius:999px;cursor:pointer;
+ font:500 11.5px/1.6 inherit;border:1px solid var(--line);
+ background:var(--card);color:var(--fg)}
+.kchip:hover{border-color:var(--acc)}
+.kchip i{font-style:normal;color:var(--dim);flex:0 0 auto}
+.kchip b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kchip.set{background:var(--accsoft);border-color:transparent}
+.kchip.undo{color:var(--dim);background:transparent}
+#quick{display:flex;gap:6px;overflow-x:auto;padding:0 0 9px;scrollbar-width:none}
+#quick::-webkit-scrollbar{display:none}
+#quick .qlab{flex:0 0 auto;align-self:center;font-size:11.5px;color:var(--dim);margin-right:2px}
+#quick .kchip{flex:0 0 auto;background:var(--accsoft);border-color:transparent;
+ color:var(--acc);font-weight:600}
+#quick .kchip:hover{background:var(--acc);color:#fff}
+/* 여러 개 고르는 칸의 소그룹 제목 */
+.chips .gsep{flex:0 0 100%;font-size:11px;color:var(--dim);margin:4px 0 -2px}
+.chips .gsep:first-child{margin-top:0}
+/* 코디 한 칸: 대분류 → 아이템 → 속성 */
+.slot{grid-column:1/-1;border-top:1px solid var(--line);padding-top:11px}
+.slot:first-of-type{border-top:0;padding-top:0}
+.srow{display:flex;gap:8px;align-items:center}
+.srow select{min-width:0}
+.srow .cat{flex:0 0 clamp(110px,26%,168px);background:var(--soft);color:var(--dim);font-size:13px}
+.srow .item{flex:1 1 auto;font-weight:500}
+.arow{display:flex;flex-wrap:wrap;gap:7px 10px;margin-top:8px}
+.arow .ax{display:flex;align-items:center;gap:5px}
+.arow em{font-style:normal;font-size:11.5px;color:var(--dim)}
+.arow select{width:auto;min-width:84px;padding:6px 9px;font-size:12.5px;border-radius:8px}
+@media(max-width:620px){.srow{flex-wrap:wrap}.srow .cat,.srow .item{flex:1 1 100%}}
+@keyframes ping{0%{box-shadow:0 0 0 0 var(--acc)}100%{box-shadow:0 0 0 9px transparent}}
+.ping{animation:ping .9s ease-out;border-radius:10px}
+@keyframes flash{0%{background:var(--acc);color:#fff}100%{background:transparent}}
+.justset{animation:flash 1.1s ease-out}
 .look{margin-top:16px}
 .look>summary{font-weight:600;font-size:13.5px}
 .look .sum{font-weight:400;color:var(--dim);font-size:12.5px;margin-left:6px}
@@ -530,6 +605,21 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--
 </div>
 
 </div>
+
+<div id="chatbar" class="hide">
+  <div class="cwrap">
+    <div id="chatlog" class="hide"></div>
+    <div id="quick"></div>
+    <div class="crow">
+      <button id="chattoggle" class="ghost mini" title="대화 내역 보기">💬</button>
+      <input id="chatin" placeholder="말로 바꿔 보세요 — 예: 20대 초반 여성, 청순하게. 하의는 검정 슬랙스">
+      <button id="chatgo">보내기</button>
+      <button id="chatclose" class="ghost mini" title="채팅 닫기">✕</button>
+    </div>
+    <div class="chint" id="chint">고른 내용은 위 화면에 그대로 채워집니다. 확인하고 고치세요.</div>
+  </div>
+</div>
+<button id="chatopen" class="hide" title="대화로 설정하기">💬 대화로 설정</button>
 <script>
 const $=i=>document.getElementById(i);
 const LABEL={hero:"① 대표컷",wear:"② 정면 착용",side:"③ 측면 착용",
@@ -544,14 +634,21 @@ function ctl(P,it){
   if(it.type==="text")
     return `<div><label>${esc(it.label)}</label>
       <input id="${id}" data-k="${it.key}" data-t="text" placeholder="${esc(it.ph||"")}"></div>`;
+  // 소분류(optgroups)가 있으면 갈래별로 묶어서 보여준다 — 고를 때 덜 헷갈린다
+  const gs=(it.optgroups&&it.optgroups.length)?it.optgroups:[{title:"",options:it.options}];
+  const box=o=>`<label class="chip"><input type="checkbox" value="${esc(o)}">${esc(o)}</label>`;
   if(it.type==="multi")
     return `<div class="wide"><label>${esc(it.label)}</label>
       <div class="chips" id="${id}" data-k="${it.key}" data-t="multi">
-        ${it.options.map(o=>`<label class="chip"><input type="checkbox" value="${esc(o)}">${esc(o)}</label>`).join("")}
+        ${gs.map(g=>(g.title?`<div class="gsep">${esc(g.title)}</div>`:"")
+                    +g.options.map(box).join("")).join("")}
       </div></div>`;
+  const opt=o=>`<option${o===it.default?" selected":""}>${esc(o)}</option>`;
   return `<div><label>${esc(it.label)}</label>
     <select id="${id}" data-k="${it.key}" data-t="select">
-      ${it.options.map(o=>`<option${o===it.default?" selected":""}>${esc(o)}</option>`).join("")}
+      ${gs.map(g=>g.title
+          ? `<optgroup label="${esc(g.title)}">${g.options.map(opt).join("")}</optgroup>`
+          : g.options.map(opt).join("")).join("")}
     </select></div>`;
 }
 function build(P,host){
@@ -637,7 +734,7 @@ $("mload").onclick=()=>{
     const m=list.find(x=>x.name===n); if(!m)return;
     const r=await fetch("/api/model_get?name="+encodeURIComponent(n));
     const got=await r.json(), who=got.who;
-    setLook("sA",got.styling);
+    setLook("sA",got.styling,true);
     if(typeof who==="string"){ $("cAchk").checked=true; $("cA").value=who;
       $("cA").classList.remove("hide"); $("tA").classList.add("hide"); preview("tA"); return; }
     $("cAchk").checked=false; $("cA").classList.add("hide"); $("tA").classList.remove("hide");
@@ -676,60 +773,146 @@ $("msave").onclick=()=>doSave("mname",pick("tA"));
 $("msave2").onclick=()=>doSave("mname2",pick("tB"),job);
 
 // ---------- 코디 패널 (sA = 1단계, sB = 2단계)
+// 한 칸을 세 겹으로 고른다:  대분류 → 아이템 → 속성(핏·기장·허리·색·착용)
+// 속성은 아이템마다 붙는 축이 달라서, 대분류가 바뀔 때마다 다시 그린다.
+const AUTO_="AI가 알아서";
 let SY=null;
+const AXV={};                    // 속성칸이 다시 그려져도 고른 값을 기억한다
+const slotAxHost=(P,k)=>$(P+"-"+k+"__ax");
+const slotCat=(P,k)=>$(P+"-"+k+"__cat");
+// 저장 키 "하의.핏" → 화면 id "sA-하의__핏"
+const styId=(P,k)=>P+"-"+String(k).replace(".","__");
+
+function lookCtl(P,it){
+  if(it.type!=="cascade")return ctl(P,it);        // 액세서리·색 조합은 그대로
+  const id=P+"-"+it.key;
+  return `<div class="wide slot"><label>${esc(it.label)}</label>
+    <div class="srow">
+      <select class="cat" id="${id}__cat">${
+        it.cats.map(c=>`<option>${esc(c.title)}</option>`).join("")}</select>
+      <select class="item" id="${id}" data-k="${esc(it.key)}" data-t="select"></select>
+    </div>
+    <div class="arow" id="${id}__ax"></div></div>`;
+}
+function catOf(it,val){
+  for(const c of it.cats) if(c.options.includes(val)) return c.title;
+  return it.cats[0].title;
+}
+function buildAxes(P,it,cat){
+  const host=slotAxHost(P,it.key);
+  // 같은 '기장'이라도 팬츠와 스커트는 값이 다르다. 대분류가 들고 있는 축을 그대로 쓴다.
+  host.innerHTML=(cat.axes||[]).map(a=>{
+    const aid=P+"-"+it.key+"__"+a.key;
+    const want=a.options.includes(AXV[aid])?AXV[aid]:a.default;
+    return `<span class="ax"><em>${esc(a.label)}</em>
+      <select id="${aid}" data-k="${esc(it.key+"."+a.key)}" data-t="select">${
+        a.options.map(o=>`<option${o===want?" selected":""}>${esc(o)}</option>`).join("")
+      }</select></span>`;
+  }).join("");
+  host.classList.toggle("hide",!(cat.axes||[]).length);
+  host.querySelectorAll("select").forEach(el=>
+    el.addEventListener("change",()=>{AXV[el.id]=el.value;syncLook(P);}));
+}
+function fillSlot(P,it,want){
+  const catSel=slotCat(P,it.key), sel=$(P+"-"+it.key);
+  const cat=it.cats.find(c=>c.title===catSel.value)||it.cats[0];
+  const pick=(want&&cat.options.includes(want))?want:cat.options[0];
+  sel.innerHTML=cat.options.map(o=>
+    `<option${o===pick?" selected":""}>${esc(o)}</option>`).join("");
+  buildAxes(P,it,cat);
+}
+function eachSlot(fn){ SY.groups.forEach(g=>g.items.forEach(fn)); }
+
 function buildLook(P,host,kindSel){
   host.innerHTML=SY.groups.map(g=>
     `<div class="traits" style="margin-top:12px">
        <div class="wide" style="color:var(--dim);font-size:12px;margin-bottom:-4px">${esc(g.title)}</div>
-       ${g.items.map(it=>ctl(P,it)).join("")}</div>`).join("");
+       ${g.items.map(it=>lookCtl(P,it)).join("")}</div>`).join("");
   kindSel.innerHTML=SY.kinds.map(k=>`<option>${esc(k)}</option>`).join("");
-  host.querySelectorAll("select,input").forEach(el=>
-    el.addEventListener("change",()=>syncLook(P)));
+  eachSlot(it=>{
+    if(it.type!=="cascade")return;
+    const catSel=slotCat(P,it.key);
+    catSel.value=catOf(it,it.default);
+    fillSlot(P,it,it.default);
+    catSel.addEventListener("change",()=>{fillSlot(P,it);syncLook(P);});
+    $(P+"-"+it.key).addEventListener("change",()=>syncLook(P));
+  });
+  host.querySelectorAll("select,input").forEach(el=>{
+    if(el.closest(".slot"))return;                // 위에서 따로 달았다
+    el.addEventListener("change",()=>syncLook(P));
+  });
   kindSel.onchange=()=>syncLook(P);
   syncLook(P);
 }
-// 제품 종류에 따라 충돌하는 슬롯을 감추고, 요약 한 줄을 갱신한다
+// 제품 종류에 따라 충돌하는 칸을 감추고, 요약 한 줄을 갱신한다
 function syncLook(P){
   const kind=$(P==="sA"?"kindA":"kindB").value;
   const hide=(SY.hide[kind]||[]);
   const worn=[];
-  SY.groups.forEach(g=>g.items.forEach(it=>{
+  eachSlot(it=>{
     const el=$(P+"-"+it.key); if(!el)return;
-    const box=el.closest("div.wide")||el.closest("div");
-    if(box)box.classList.toggle("hide",hide.includes(it.key));
-    if(hide.includes(it.key))return;
+    const shell=el.closest(".slot")||el.closest("div.wide")||el.closest("div");
+    if(shell)shell.classList.toggle("hide",hide.includes(it.key));
+    if(hide.includes(it.key)||it.key==="색조합")return;
     if(it.type==="multi"){
       [...el.querySelectorAll("input:checked")].forEach(c=>worn.push(c.value));
-    }else if(el.value && el.value!=="AI가 알아서" && el.value!=="없음" && el.value!=="안 보이게"){
-      worn.push(el.value.replace(/^기본 — /,""));
+      return;
     }
-  }));
+    const v=el.value;
+    if(!v||v===AUTO_||(it.none||[]).includes(v))return;
+    const c=$(P+"-"+it.key+"__색상");
+    worn.push((c&&c.value!=="자동"?c.value+" ":"")+v);
+  });
   $(P==="sA"?"sumA":"sumB").textContent = worn.length? "· "+worn.slice(0,4).join(", ")
     + (worn.length>4?" 외 "+(worn.length-4):"") : "";
 }
 function pickLook(P){
   const kind=$(P==="sA"?"kindA":"kindB").value;
   const hide=(SY.hide[kind]||[]), o={};
-  SY.groups.forEach(g=>g.items.forEach(it=>{
+  eachSlot(it=>{
     if(hide.includes(it.key))return;
     const el=$(P+"-"+it.key); if(!el)return;
     if(it.type==="multi"){
       const v=[...el.querySelectorAll("input:checked")].map(c=>c.value);
       if(v.length)o[it.key]=v;
-    }else if(el.value) o[it.key]=el.value;
-  }));
+      return;
+    }
+    if(el.value)o[it.key]=el.value;
+    const host=slotAxHost(P,it.key);
+    if(host)host.querySelectorAll("select").forEach(s=>{o[s.dataset.k]=s.value;});
+  });
   return {kind,styling:o};
 }
-function setLook(P,styling){
+// full=true 면 목록에 없는 항목까지 비운다 (저장된 모델 불러오기).
+// 대화로 한두 칸만 고칠 때는 full 없이 부른다 — 안 건드린 칸은 그대로 남아야 한다.
+function setLook(P,styling,full){
   if(!SY||!styling)return;
-  SY.groups.forEach(g=>g.items.forEach(it=>{
+  eachSlot(it=>{
     const el=$(P+"-"+it.key); if(!el)return;
     const v=styling[it.key];
     if(it.type==="multi"){
-      const on=Array.isArray(v)?v:[];
+      if(v===undefined){
+        if(full)el.querySelectorAll("input").forEach(c=>c.checked=false);
+        return;
+      }
+      const on=Array.isArray(v)?v:[v];
       el.querySelectorAll("input").forEach(c=>c.checked=on.includes(c.value));
-    }else if(v!==undefined) el.value=v;
-  }));
+      return;
+    }
+    if(it.type!=="cascade"){
+      if(v!==undefined)el.value=v;
+      return;
+    }
+    if(v!==undefined&&it.options.includes(v)){
+      slotCat(P,it.key).value=catOf(it,v);
+      fillSlot(P,it,v);
+    }
+    const host=slotAxHost(P,it.key);                 // 속성값은 있는 것만 반영
+    if(host)host.querySelectorAll("select").forEach(s=>{
+      const av=styling[s.dataset.k];
+      if(av!==undefined&&[...s.options].some(o=>o.value===av)){s.value=av;AXV[s.id]=av;}
+    });
+  });
   syncLook(P);
 }
 // 제품명을 적으면 종류를 짐작해서 채운다 (사용자가 손대기 전까지만)
@@ -860,6 +1043,7 @@ $("go").onclick=async()=>{
   $("tB").classList.toggle("hide",$("cBchk").checked);
   preview("tB");
   $("step1").classList.add("hide"); $("step2").classList.remove("hide");
+  if(window.setQuick)setQuick();          // 2단계용 추천으로 바꿔 준다
   poll();
 };
 
@@ -968,7 +1152,8 @@ function tile(cut,st){
     ?`<a href="${url}" download="${cut}.png" title="브라우저 다운로드 폴더로 받습니다">내려받기</a>`:"";
   const re=(st.state==="done"||st.state==="error"||st.state==="skip")
     ?`<button class="re" data-cut="${cut}" title="위 설정 그대로 이 컷만 다시 만듭니다">다시</button>`:"";
-  return `<div class="tile">${inner}<div class="cap"><span>${LABEL[cut]}</span>
+  return `<div class="tile"><div class="shot">${inner}</div>
+    <div class="cap"><b>${LABEL[cut]}</b>
     <span class="capr">${dl}${re}</span></div></div>`;
 }
 async function poll(){
@@ -1002,6 +1187,306 @@ async function poll(){
     }
   },2000);
 }
+
+// ================================================================ 대화 입력기
+// 말한 것을 화면의 선택지로 옮겨 채운다. 그림은 여기서 만들지 않는다.
+let CHAT=[];
+const step2On=()=>!$("step2").classList.contains("hide");
+const P_=()=>step2On()?"tB":"tA";          // 지금 보고 있는 단계의 패널
+const S_=()=>step2On()?"sB":"sA";
+
+function chatState(){
+  const P=P_(), S=S_(), st={model:{},styling:{},poses:{},cuts:[]};
+  if(G) G.forEach(g=>g.items.forEach(it=>{
+    const el=$(P+"-"+it.key); if(!el)return;
+    if(it.type==="multi"){
+      const v=[...el.querySelectorAll("input:checked")].map(c=>c.value);
+      if(v.length)st.model[it.key]=v;
+    }else if(el.value && el.value!=="지정 안 함") st.model[it.key]=el.value;
+  }));
+  if(SY){ const L=pickLook(S); st.styling=L.styling; st.kind=L.kind; }
+  if(PT && step2On()){
+    st.cuts=["wear","side","close","detail","thumb"]
+      .filter(c=>$("use-"+c)&&$("use-"+c).checked);
+    MODEL_CUTS.forEach(c=>{
+      const f=$("focus-"+c), b=$("base-"+c), o={};
+      if(f&&f.value&&f.value!=="지정 안 함")o["강조 부위"]=f.value;
+      if(b&&b.value&&b.value!=="지정 안 함")o["베이스 포즈"]=b.value;
+      if(Object.keys(o).length)st.poses[c]=o;
+    });
+  }
+  st.has_hero=!!(job && $("heroBox").querySelector("img"));
+  return st;
+}
+function mark(el){ if(!el)return; el.classList.remove("justset");
+  void el.offsetWidth; el.classList.add("justset"); }
+
+// ---- 바뀐 칸을 이름으로 부르기 위한 표
+const shortLab=s=>String(s).replace(/\s*\(.*\)\s*$/,"");   // "액세서리 (여러 개…)" → "액세서리"
+function axisLabel(k){
+  if(G)for(const g of G)for(const it of g.items)if(it.key===k)return shortLab(it.label||k);
+  return k;
+}
+function styLabel(k){                       // "하의" 또는 "하의.핏"
+  const [slot,ax]=String(k).split(".");
+  if(SY)for(const g of SY.groups)for(const it of g.items){
+    if(it.key!==slot)continue;
+    if(!ax)return shortLab(it.label||slot);
+    const a=(it.axes||[]).find(x=>x.key===ax);
+    return slot+" "+(a?a.label:ax);
+  }
+  return k;
+}
+const cutName=c=>(LABEL[c]||c).replace(/^[①-⑥]\s*/,"");
+const asText=v=>(Array.isArray(v)?v.join(", "):String(v)).replace(/^기본 — /,"");
+
+// ---- 되돌리기를 위해 바꾸기 직전 값을 떠 둔다
+function snap(el){
+  if(!el)return null;
+  if(el.dataset&&el.dataset.t==="multi")
+    return [...el.querySelectorAll("input:checked")].map(c=>c.value);
+  if(el.type==="checkbox")return el.checked;
+  return el.value;
+}
+function restore(el,v){
+  if(!el)return;
+  if(el.dataset&&el.dataset.t==="multi"){
+    el.querySelectorAll("input").forEach(c=>{c.checked=v.indexOf(c.value)>=0;}); return;
+  }
+  if(el.type==="checkbox"){el.checked=v;return;}
+  el.value=v;
+}
+
+function applyPatch(p){
+  const P=P_(), S=S_(), chips=[], undo=[];
+  const keep=el=>{ if(el)undo.push(["el",el,snap(el)]); };
+
+  if(G) Object.entries(p.model||{}).forEach(([k,v])=>{
+    const el=$(P+"-"+k); if(!el)return;
+    keep(el);
+    if(el.dataset.t==="multi"){
+      const on=Array.isArray(v)?v:[v];
+      el.querySelectorAll("input").forEach(c=>{ if(on.includes(c.value))c.checked=true; });
+    }else el.value=v;
+    mark(el); chips.push({name:axisLabel(k),val:asText(v),el});
+  });
+  if(G && Object.keys(p.model||{}).length){
+    $(P==="tA"?"cAchk":"cBchk").checked=false;
+    $(P==="tA"?"cA":"cB").classList.add("hide");
+    $(P).classList.remove("hide");
+    preview(P);
+  }
+  if(SY){
+    // 코디는 아이템이 바뀌면 속성 칸이 통째로 다시 그려진다. 낱개 칸을 떠 두면
+    // 되돌릴 때 이미 사라진 칸을 붙잡게 되므로, 코디는 한 벌을 통째로 떠 둔다.
+    const prev=pickLook(S);
+    let touched=false;
+    if(p.kind){ const k=$(S==="sA"?"kindA":"kindB");
+      if(k){k.value=p.kind;mark(k);touched=true;
+            chips.push({name:"제품 종류",val:p.kind,id:S==="sA"?"kindA":"kindB"});}
+      if(S==="sA")kindTouched=true; }
+    const st=p.styling||{};
+    if(Object.keys(st).length){
+      setLook(S,st);
+      Object.keys(st).forEach(k=>{ const el=$(styId(S,k)); if(!el)return;
+        mark(el); chips.push({name:styLabel(k),val:asText(st[k]),id:styId(S,k)}); });
+      const box=$(S==="sA"?"lookA":"lookB"); if(box)box.open=true;
+      touched=true;
+    }else if(p.kind) syncLook(S);
+    if(touched)undo.push(["look",S,prev]);
+  }
+  if(step2On()){
+    if((p.cuts||[]).length){
+      const on=[];
+      ["wear","side","close","detail","thumb"].forEach(c=>{
+        const el=$("use-"+c); if(!el)return;
+        keep(el); el.checked=p.cuts.includes(c); mark(el);
+        if(el.checked)on.push(cutName(c));
+      });
+      chips.push({name:"만들 컷",val:on.join(", ")||"없음",el:$("use-wear")});
+    }
+    Object.entries(p.poses||{}).forEach(([cut,sel])=>{
+      Object.entries(sel).forEach(([ax,v])=>{
+        let el=null;
+        if(ax==="강조 부위")el=$("focus-"+cut);
+        else if(ax==="베이스 포즈")el=$("base-"+cut);
+        else el=document.querySelector("#plan select[data-cut='"+cut+"'][data-ax='"+ax+"']");
+        if(el){keep(el);el.value=v;mark(el);
+               chips.push({name:cutName(cut)+" "+ax,val:asText(v),el});}
+      });
+    });
+  }
+  return {chips,undo};
+}
+
+// ---- 칩: 눌러서 확인하고, 눌러서 되돌리고, 눌러서 다음 말을 보낸다
+function chip(cls,html,fn){
+  const b=document.createElement("button");
+  b.type="button"; b.className="kchip "+cls; b.innerHTML=html; b.onclick=fn;
+  return b;
+}
+function reveal(c){                        // 그 칸이 어디 있는지 눈으로 보여준다
+  const el=c.el||$(c.id);                  // 다시 그려졌을 수 있어 누를 때 찾는다
+  if(!el)return;
+  let d=el.closest("details");
+  while(d){ d.open=true; d=d.parentElement&&d.parentElement.closest("details"); }
+  el.scrollIntoView({behavior:"smooth",block:"center"});
+  el.classList.remove("ping"); void el.offsetWidth; el.classList.add("ping");
+}
+function undoPatch(undo,row){
+  undo.slice().reverse().forEach(u=>{
+    if(u[0]==="look"){                     // 코디 한 벌 통째로
+      const S=u[1], prev=u[2];
+      const k=$(S==="sA"?"kindA":"kindB"); if(k&&prev.kind)k.value=prev.kind;
+      setLook(S,prev.styling,true);
+      return;
+    }
+    restore(u[1],u[2]);
+  });
+  if(SY)syncLook(S_());
+  if(G)preview(P_());
+  row.remove(); fitChat();
+  chatSay("ai","되돌렸습니다.");
+}
+function showChips(bubble,chips,undo){
+  if(!chips.length)return;
+  const row=document.createElement("div"); row.className="krow";
+  chips.slice(0,14).forEach(c=>row.appendChild(
+    chip("set","<i>"+esc(c.name)+"</i><b>"+esc(c.val)+"</b>",()=>reveal(c))));
+  if(chips.length>14)row.appendChild(
+    chip("","<i>그 밖</i><b>"+(chips.length-14)+"개</b>",()=>{}));
+  row.appendChild(chip("undo","↩ 되돌리기",()=>undoPatch(undo,row)));
+  bubble.appendChild(row);
+}
+
+// ---- 다음에 눌러볼 말. 안 물어봐도 고를 거리를 보여준다.
+const START1=["여성 20대 초반, 청순하게","남성 20대 후반, 시크하게",
+              "분위기까지 알아서 채워줘","코디는 알아서 잡아줘"];
+const NEXT1 =["좀 더 어리게","코디는 알아서 잡아줘","머리 더 길게","대표컷 뽑아줘"];
+const START2=["포즈 컷마다 다르게","컷은 착용컷 두 장만","나머지 컷 만들어줘"];
+function fallbackQuick(){
+  if(step2On())return START2;
+  const st=chatState().model||{};
+  return Object.keys(st).length>1 ? NEXT1 : START1;   // 이미 잡은 게 있으면 다음 걸음으로
+}
+function setQuick(list){
+  const q=$("quick"); q.innerHTML="";
+  const use=(list&&list.length)?list:fallbackQuick();
+  const lab=document.createElement("span");
+  lab.className="qlab"; lab.textContent="눌러서 →";
+  q.appendChild(lab);
+  use.slice(0,5).forEach(t=>q.appendChild(chip("",esc(t),()=>{
+    $("chatin").value=t; sendChat();
+  })));
+  fitChat();
+}
+// 대화창 높이가 바뀌면 본문 아래 여백도 같이 바뀐다
+function fitChat(){
+  const bar=$("chatbar");
+  document.body.style.paddingBottom =
+    bar.classList.contains("hide") ? "" : (bar.offsetHeight+26)+"px";
+}
+function runFromChat(run){
+  if(run==="hero") return (step2On()?$("again"):$("go")).click(), "대표컷을 만들겠습니다.";
+  if(run==="rest"){ if(step2On()){ $("ok").click(); return "나머지 컷을 만들겠습니다."; } return ""; }
+  if(run.indexOf("cut:")===0){
+    const b=document.querySelector("#grid button.re[data-cut='"+run.slice(4)+"']");
+    if(b){ b.click(); return "그 컷만 다시 뽑겠습니다."; }
+  }
+  return "";
+}
+// 사진 생성은 장당 요금이 든다. 잘못 알아들었을 수 있으니 한 번 확인받는다.
+const RUNLABEL={hero:"대표컷을 만들까요?",rest:"나머지 컷을 만들까요?"};
+function askRun(run){
+  const label=RUNLABEL[run]||"그 컷만 다시 뽑을까요?";
+  const d=document.createElement("div");
+  d.className="m ai ask";
+  d.innerHTML='<span>'+esc(label)+' <button class="yes mini">네, 만들게요</button>'
+            + '<button class="no ghost mini">아니오</button></span>';
+  $("chatlog").appendChild(d);
+  $("chatlog").classList.remove("hide");
+  $("chatlog").scrollTop=$("chatlog").scrollHeight;
+  fitChat();
+  const done=t=>{ d.querySelectorAll("button").forEach(b=>b.remove());
+                  d.querySelector("span").appendChild(document.createTextNode(" — "+t)); };
+  d.querySelector(".yes").onclick=()=>{ const m=runFromChat(run); done(m||"실행했습니다."); };
+  d.querySelector(".no").onclick=()=>done("그만뒀습니다.");
+}
+function chatSay(who,text,bad){
+  const d=document.createElement("div");
+  d.className="m "+(who==="me"?"me":"ai")+(bad?" bad":"");
+  d.innerHTML="<span>"+esc(text)+"</span>";
+  $("chatlog").appendChild(d); $("chatlog").classList.remove("hide");
+  $("chatlog").scrollTop=$("chatlog").scrollHeight;
+  fitChat();
+  return d;
+}
+let chatBusy=false;
+async function sendChat(){
+  if(chatBusy)return;                                   // 연달아 눌러도 한 번만
+  const msg=$("chatin").value.trim(); if(!msg)return;
+  chatBusy=true;
+  $("chatin").value=""; chatSay("me",msg);
+  $("chatgo").disabled=true; $("chatgo").textContent="…";
+  try{
+    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({msg,history:CHAT.slice(),state:chatState()})});
+    const j=await r.json();
+    CHAT.push({role:"user",content:msg});
+    if(!j.ok){ chatSay("ai",j.error||"알아듣지 못했습니다.",true); return; }
+    const {chips,undo}=applyPatch(j);
+    const wants=(j.run&&j.run!=="none")?j.run:"";
+    let say=j.say;
+    // 포즈·컷은 2단계에만 있는 칸이라, 1단계에서는 받아 둘 곳이 없다
+    const later=!step2On()&&(Object.keys(j.poses||{}).length||(j.cuts||[]).length);
+    if(later)say+=" (포즈와 컷은 대표컷을 만든 뒤 2단계에서 정해집니다)";
+    else if(!chips.length&&!wants)say+=" (바뀐 항목은 없습니다)";
+    const bubble=chatSay("ai",say);
+    showChips(bubble,chips,undo);    // 무엇이 어떻게 바뀌었는지 눈으로
+    setQuick(j.tips);                // 다음에 눌러볼 말
+    $("chatlog").scrollTop=$("chatlog").scrollHeight;
+    if(wants)askRun(wants);          // 돈이 드는 일이라 바로 실행하지 않는다
+    CHAT.push({role:"assistant",content:j.say});
+    if(CHAT.length>24)CHAT=CHAT.slice(-24);
+  }catch(e){ chatSay("ai",String(e),true); }
+  finally{ chatBusy=false; $("chatgo").disabled=false;
+           $("chatgo").textContent="보내기"; $("chatin").focus(); }
+}
+$("chatgo").onclick=sendChat;
+// 한글·일본어·중국어 입력기는 마지막 글자를 "조합 중" 상태로 들고 있다가
+// Enter 로 확정한다. 그 Enter 까지 전송으로 처리하면 확정된 글자가 빈 칸에 남아
+// 한 번 더 보내진다 ("가방 없애줘" → "줘"). 조합 중일 때는 보내지 않는다.
+let composing=false;
+$("chatin").addEventListener("compositionstart",()=>{composing=true;});
+$("chatin").addEventListener("compositionend",()=>{composing=false;});
+$("chatin").addEventListener("keydown",e=>{
+  if(e.key!=="Enter")return;
+  if(e.isComposing||composing||e.keyCode===229)return;   // 조합 확정용 Enter
+  e.preventDefault();
+  sendChat();
+});
+$("chattoggle").onclick=()=>{
+  const l=$("chatlog");
+  if(!l.children.length){ $("chint").textContent="아직 주고받은 말이 없습니다."; return; }
+  l.classList.toggle("hide");
+};
+// 채팅 열기·닫기. 닫아도 대화 내역은 남는다.
+function chatShow(on){
+  $("chatbar").classList.toggle("hide",!on);
+  $("chatopen").classList.toggle("hide",on);
+  document.body.classList.toggle("chaton",on);
+  fitChat();
+  if(on)$("chatin").focus();
+}
+$("chatclose").onclick=()=>chatShow(false);
+$("chatopen").onclick=()=>chatShow(true);
+document.addEventListener("keydown",e=>{                 // Esc 로도 닫힌다
+  if(e.key==="Escape" && !$("chatbar").classList.contains("hide"))chatShow(false);
+});
+setQuick();
+chatShow(true);
+addEventListener("resize",fitChat);
+
 </script></body></html>
 """
 
@@ -1049,7 +1534,8 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        if "Cache-Control" not in (extra or {}):       # 글꼴처럼 안 바뀌는 것은 캐시한다
+            self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         if getattr(self, "_cookie", ""):
@@ -1071,6 +1557,14 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, LOGIN.encode(), "text/html; charset=utf-8")
         if path == "/":
             return self.send(200, PAGE.encode(), "text/html; charset=utf-8")
+        if path == "/pretendard.woff2":
+            fp = os.path.join(HERE, "pretendard.woff2")
+            if os.path.isfile(fp):
+                with open(fp, "rb") as f:
+                    return self.send(200, f.read(), "font/woff2",
+                                     {"Cache-Control": "public, max-age=31536000, immutable"})
+            return self.send(404, b"not found", "text/plain")
+
         if path == "/api/poses":
             return self.js({"cuts": gs.poses_json(), "pose": gs.pose_traits_json()})
 
@@ -1209,6 +1703,16 @@ class H(BaseHTTPRequestHandler):
 
         if path == "/api/model_delete":
             return self.js({"ok": gs.delete_model(str(b.get("name") or ""))})
+
+        if path == "/api/chat":
+            if ca is None:
+                return self.js({"ok": False, "error": "chat_agent.py 를 찾지 못했습니다."})
+            try:
+                out = ca.reply(b.get("history") or [], b.get("msg"),
+                               b.get("state") or {}, gs.chat)
+                return self.js({"ok": True, **out})
+            except Exception as e:
+                return self.js({"ok": False, "error": str(e)[:300]})
 
         if path == "/api/preview":
             try:
