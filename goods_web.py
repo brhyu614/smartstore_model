@@ -57,7 +57,9 @@ SIZE = "1K"
 REST = ["wear", "side", "close", "detail", "thumb"]
 
 # ------------------------------------------------------- 팀 공용 배포 설정
-# 모두 환경변수로 켠다. APP_PASSWORD 가 비어 있으면 예전처럼 "내 컴퓨터 전용" 모드.
+# 모두 환경변수로 켠다. APP_PASSWORD 가 비어 있으면 비밀번호 화면을 띄우지 않는다.
+# 장터처럼 비번이 없어야 하는 곳에 올릴 때 그렇게 쓴다. 그때는 DAILY_LIMIT 이
+# 자동으로 걸려서, 주소가 새어 나가도 하루 OPEN_LIMIT 장에서 멈춘다.
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 APP_SECRET = os.environ.get("APP_SECRET", "").strip() or \
     base64.b64encode(os.urandom(24)).decode()
@@ -65,6 +67,8 @@ COOKIE = "gsauth"
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "12") or 12)
 DAILY_LIMIT = int(os.environ.get("DAILY_LIMIT", "0") or 0)   # 하루 생성 장수, 0=무제한
 MAX_JOBS = int(os.environ.get("MAX_JOBS", "12") or 12)       # 메모리에 남겨 둘 작업 수
+SERVER_MODE = False        # 밖에서 접속받는 중인가. main() 에서 정한다.
+OPEN_LIMIT = 40            # 비번 없이 공개했을 때 강제로 걸리는 하루 한도
 
 USED = {"day": "", "n": 0}
 FAILS = {}          # 로그인 실패 기록 {아이피: [횟수, 잠금해제시각]}
@@ -934,7 +938,8 @@ function refreshWhere(){
       s="서버에서 돌아갑니다. 결과는 <b>[내려받기]</b> 나 <b>[전체 내려받기 (zip)]</b> 로 "+
         "직접 챙겨 주세요 — 서버 안 파일은 오래 남지 않습니다.";
       if(w.limit>0) s+=" 오늘 남은 장수 <b>"+w.left+" / "+w.limit+"</b>.";
-      s+=' <a href="#" id="out" style="color:var(--acc)">로그아웃</a>';
+      // 비번을 안 걸었으면 로그아웃할 것이 없다
+      if(w.auth) s+=' <a href="#" id="out" style="color:var(--acc)">로그아웃</a>';
     }else{
       s="컷이 나오는 즉시 <b>"+esc(w.outdir)+
         "</b> 안에 제품명 폴더로 자동 저장됩니다. 아래 [내려받기] 는 브라우저 다운로드라 크롬 기본 폴더로 갑니다.";
@@ -1580,7 +1585,9 @@ class H(BaseHTTPRequestHandler):
             return self.js({"who": gs.get_model(name), "styling": gs.get_look(name)})
 
         if path == "/api/where":
-            d = {"outdir": OUTDIR, "cloud": need_auth()}
+            # cloud 는 "서버에서 돌고 있으니 결과를 직접 챙겨라" 는 뜻이다.
+            # 비번을 안 걸었다고 해서 내 컴퓨터인 것은 아니므로 need_auth() 와 분리한다.
+            d = {"outdir": OUTDIR, "cloud": SERVER_MODE, "auth": need_auth()}
             d.update(quota_state())
             return self.js(d)
 
@@ -1777,7 +1784,7 @@ class H(BaseHTTPRequestHandler):
 
 
 def main():
-    global OUTDIR, MODEL, SIZE
+    global OUTDIR, MODEL, SIZE, SERVER_MODE, DAILY_LIMIT
     ap = argparse.ArgumentParser(description="상세페이지 이미지 만들기 (웹 화면)")
     # 서버(Render 등)에 올리면 PORT 환경변수가 들어온다 → 그때는 밖에서 접속받는다
     env_port = os.environ.get("PORT")
@@ -1795,11 +1802,13 @@ def main():
     OUTDIR = os.path.abspath(os.path.expanduser(args.outdir))
     MODEL, SIZE = args.model, args.size
     server_mode = args.host not in ("127.0.0.1", "localhost")
+    SERVER_MODE = server_mode
 
-    if server_mode and not need_auth():
-        sys.exit("밖에서 접속받는 모드인데 APP_PASSWORD 가 없습니다.\n"
-                 "누구나 들어와 키를 쓰게 되므로 막았습니다. "
-                 "APP_PASSWORD 를 정해서 환경변수로 넣고 다시 실행하세요.")
+    # 비번 없이 밖에 열어 두는 것은 막지 않는다 (장터에 올리려면 비번이 없어야 한다).
+    # 대신 주소를 아는 누구나 키를 쓸 수 있으므로, 하루 한도를 반드시 걸어 둔다.
+    open_mode = server_mode and not need_auth()
+    if open_mode and DAILY_LIMIT <= 0:
+        DAILY_LIMIT = OPEN_LIMIT
 
     url = "http://127.0.0.1:%d" % args.port
     print("─" * 56)
@@ -1808,10 +1817,16 @@ def main():
     print(" 저장   : %s" % OUTDIR)
     print(" 모델   : %s (%s)" % (MODEL, SIZE))
     print(" 키     : %s" % ("설정됨" if gs.OR_KEY else "❗ OPENROUTER_API_KEY 없음"))
-    print(" 로그인 : %s" % ("비밀번호 필요" if need_auth() else "없음 (내 컴퓨터 전용)"))
+    print(" 로그인 : %s" % ("비밀번호 필요" if need_auth()
+                          else ("없음 (누구나 접속)" if server_mode else "없음 (내 컴퓨터 전용)")))
     print(" 한도   : %s" % ("하루 %d장" % DAILY_LIMIT if DAILY_LIMIT > 0 else "제한 없음"))
     print(" 끄기   : 이 창에서 Control + C")
     print("─" * 56)
+    if open_mode:
+        print(" ⚠ 비밀번호가 없습니다. 주소를 아는 누구나 들어와 키를 씁니다.")
+        print("   하루 %d장에서 멈추게 걸어 뒀습니다 (DAILY_LIMIT 로 조절)." % DAILY_LIMIT)
+        print("   OpenRouter 키에 Credit limit 도 꼭 걸어 두세요.")
+        print("─" * 56)
     if not args.no_open and not server_mode:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     srv = ThreadingHTTPServer((args.host, args.port), H)
