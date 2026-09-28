@@ -23,6 +23,7 @@ goods_shot.py 를 브라우저에서 쓰는 버전입니다. 같은 폴더에 �
 
 import argparse
 import base64
+import gzip
 import hashlib
 import hmac
 import io
@@ -47,6 +48,10 @@ try:
     import chat_agent as ca
 except ImportError:
     ca = None            # 없어도 화면은 그대로 돌아간다. 대화창만 안 뜬다.
+try:
+    import model_icons as mic
+except ImportError:
+    mic = None           # 없으면 색 항목이 예전처럼 드롭다운으로 나온다
 
 JOBS = {}
 LOCK = threading.Lock()
@@ -453,6 +458,41 @@ body.chaton{padding-bottom:128px}
 #chatlog .ai.bad span{color:var(--bad)}
 #chatlog .ask span{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 #chatlog .ask button{padding:5px 12px;font-size:12px;border-radius:999px}
+/* 색으로 고르는 항목 — 드롭다운 대신 색 격자.
+   원래 있던 select 는 지우지 않고 숨겨 둔다. 저장해 둔 모델·대화창 패치·
+   되돌리기가 전부 그 select 의 값을 보기 때문이다. */
+.swwrap{grid-column:1/-1}
+.swsel{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.swfam{font-size:10.5px;font-weight:700;color:var(--dim);letter-spacing:.05em;
+ margin:9px 0 5px;display:flex;align-items:center;gap:7px}
+.swfam:first-child{margin-top:2px}
+.swfam::after{content:"";flex:1;height:1px;background:var(--line)}
+.swg{display:grid;gap:7px;grid-template-columns:repeat(auto-fill,minmax(58px,1fr))}
+.swb{padding:0;border:0;background:none;cursor:pointer;text-align:center;
+ border-radius:9px;display:block;min-width:0}
+.swb i{display:block;width:100%;aspect-ratio:4/3;border-radius:7px;overflow:hidden;
+ border:1px solid rgba(0,0,0,.14);position:relative;background:#f4f1ee}
+/* 모양 아이콘은 정사각으로 그렸다. 4:3 칸에 넣으면 위아래가 남아 작아 보인다 */
+.swb i.a{aspect-ratio:1}
+.swb i.f{background:var(--c)}
+.swb i.auto{background:repeating-linear-gradient(45deg,#f2f2f6 0 6px,#e6e6ee 6px 12px);
+ display:flex;align-items:center;justify-content:center}
+.swb i.auto::after{content:"AI";font-size:10px;font-weight:800;color:var(--dim);
+ letter-spacing:.02em}
+.swb i.h{background:var(--c)}
+.swb i.h::after{content:"";position:absolute;inset:0;background:linear-gradient(
+ 180deg,rgba(0,0,0,.42) 0%,rgba(0,0,0,.1) 22%,rgba(255,255,255,.28) 46%,
+ rgba(255,255,255,.04) 62%,rgba(0,0,0,.2) 100%)}
+.swb i.u,.swb i.t{display:flex}
+.swb i.u b,.swb i.t b{flex:1;display:block}
+.swb i svg{width:100%;height:100%;display:block}
+.swb em{display:block;font-style:normal;font-size:10px;color:var(--dim);
+ margin-top:4px;line-height:1.25;word-break:keep-all}
+.swb:hover i{border-color:var(--acc)}
+.swb.on i{border-color:var(--acc);box-shadow:0 0 0 2px var(--accsoft),
+ 0 0 0 3px var(--acc)}
+.swb.on em{color:var(--acc);font-weight:700}
+.swb:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
 /* 눌러서 고르는 칩 — 타이핑과 스크롤을 줄인다 */
 #chatlog .krow{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;max-width:88%}
 .kchip{display:inline-flex;align-items:center;gap:6px;max-width:100%;
@@ -641,19 +681,116 @@ function ctl(P,it){
   // 소분류(optgroups)가 있으면 갈래별로 묶어서 보여준다 — 고를 때 덜 헷갈린다
   const gs=(it.optgroups&&it.optgroups.length)?it.optgroups:[{title:"",options:it.options}];
   const box=o=>`<label class="chip"><input type="checkbox" value="${esc(o)}">${esc(o)}</label>`;
-  if(it.type==="multi")
-    return `<div class="wide"><label>${esc(it.label)}</label>
-      <div class="chips" id="${id}" data-k="${it.key}" data-t="multi">
+  if(it.type==="multi"){
+    const chips=`<div class="chips" id="${id}" data-k="${it.key}" data-t="multi">
         ${gs.map(g=>(g.title?`<div class="gsep">${esc(g.title)}</div>`:"")
                     +g.options.map(box).join("")).join("")}
-      </div></div>`;
+      </div>`;
+    // 여러 개 고르는 칸(특징)도 격자로. 체크박스는 숨긴 채 그대로 둔다.
+    if(SW[it.key]&&SW[it.key].multi) return swMulti(P,it,chips);
+    return `<div class="wide"><label>${esc(it.label)}</label>${chips}</div>`;
+  }
   const opt=o=>`<option${o===it.default?" selected":""}>${esc(o)}</option>`;
-  return `<div><label>${esc(it.label)}</label>
-    <select id="${id}" data-k="${it.key}" data-t="select">
+  const sel=`<select id="${id}" data-k="${it.key}" data-t="select">
       ${gs.map(g=>g.title
           ? `<optgroup label="${esc(g.title)}">${g.options.map(opt).join("")}</optgroup>`
           : g.options.map(opt).join("")).join("")}
-    </select></div>`;
+    </select>`;
+  // 격자로 바꿀 항목. 원래 컨트롤은 지우지 않고 숨겨서 그대로 둔다.
+  if(SW[it.key]) return swCtl(P,it,sel);
+  return `<div><label>${esc(it.label)}</label>${sel}</div>`;
+}
+
+// ---------- 색 격자
+let SW={};
+function swTile(k,o){
+  const d=SW[k].items[o]; if(!d) return `<i></i>`;
+  if(d.svg)  return `<i class="a">${d.svg}</i>`;
+  if(d.trio) return `<i class="t">${d.trio.map(c=>
+                      `<b style="background:${c}"></b>`).join("")}</i>`;
+  if(SW[k].kind==="under")
+    return `<i class="u"><b style="background:${d.base}"></b>`+
+           `<b style="background:${d.c}"></b></i>`;
+  return `<i class="${SW[k].kind==="hair"?"h":"f"}" style="--c:${d.c}"></i>`;
+}
+function swCtl(P,it,sel){
+  const id=P+"-"+it.key, S=SW[it.key];
+  const btn=o=>`<button type="button" class="swb" data-v="${esc(o)}" `+
+    `title="${esc(o)}">${swTile(it.key,o)}<em>${esc(o)}</em></button>`;
+  // 격자에는 색만 있다. "지정 안 함"(= AI가 알아서) 으로 되돌릴 칸이 없으면
+  // 한 번 고른 뒤로는 자동으로 못 돌아간다. 맨 앞에 그 칸을 둔다.
+  const auto=`<button type="button" class="swb" data-v="지정 안 함" title="AI가 알아서">`+
+    `<i class="auto"></i><em>자동</em></button>`;
+  let body;
+  if(S.groups){                       // 머리색 30개는 계열로 묶어야 고를 수 있다
+    body=`<div class="swg">${auto}</div>`+S.groups.map(([g,names])=>
+      `<div class="swfam">${esc(g)}</div><div class="swg">`+
+      names.filter(o=>S.items[o]).map(btn).join("")+`</div>`).join("");
+  }else{
+    body=`<div class="swg">`+auto+
+         it.options.filter(o=>S.items[o]).map(btn).join("")+`</div>`;
+  }
+  return `<div class="swwrap"><label>${esc(it.label)}</label>
+    ${sel}<div class="swpick" data-for="${id}">${body}</div></div>`;
+}
+function swMulti(P,it,chips){
+  const id=P+"-"+it.key, S=SW[it.key];
+  const btn=o=>`<button type="button" class="swb" data-v="${esc(o)}" `+
+    `title="${esc(o)}">${swTile(it.key,o)}<em>${esc(o)}</em></button>`;
+  return `<div class="swwrap"><label>${esc(it.label)}
+      <span class="note" style="margin:0 0 0 6px">여러 개 고를 수 있습니다</span></label>
+    ${chips}<div class="swmul" data-for="${id}"><div class="swg">`+
+    it.options.filter(o=>S.items[o]).map(btn).join("")+`</div></div></div>`;
+}
+/* 격자와 select 를 양방향으로 묶는다.
+
+   격자를 누르면 select 값이 바뀌는 건 쉽다. 어려운 건 반대쪽이다.
+   저장해 둔 모델 불러오기, 대화창 패치, 되돌리기, [전부 지정 안 함],
+   A→B 복사가 전부 `el.value = ...` 를 직접 쓴다. 그건 change 를 쏘지 않아서,
+   값만 바뀌고 격자 표시는 옛날 것에 남는다 — 화면이 거짓말을 하게 된다.
+
+   그래서 호출처를 하나씩 고치는 대신 **value 를 넣는 순간을 가로챈다.**
+   한 곳만 막으면 되고, 앞으로 새 코드가 생겨도 자동으로 따라온다. */
+const SELVAL=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,"value");
+const CHKVAL=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"checked");
+function swBind(host){
+  host.querySelectorAll(".swpick").forEach(box=>{
+    const sel=$(box.dataset.for); if(!sel)return;
+    sel.classList.add("swsel");
+    const sync=()=>box.querySelectorAll(".swb").forEach(b=>
+      b.classList.toggle("on", b.dataset.v===SELVAL.get.call(sel)));
+    Object.defineProperty(sel,"value",{configurable:true,
+      get(){return SELVAL.get.call(this);},
+      set(v){SELVAL.set.call(this,v); sync();}});
+    box.querySelectorAll(".swb").forEach(b=>b.onclick=()=>{
+      sel.value=b.dataset.v;
+      sel.dispatchEvent(new Event("change",{bubbles:true}));
+    });
+    sel.addEventListener("change",sync);
+    sync();
+  });
+  /* 여러 개 고르는 칸(특징). 체크박스도 select 와 똑같은 문제가 있다 —
+     저장모델·되돌리기가 c.checked 를 직접 쓰는데 그건 아무 이벤트도 안 쏜다.
+     그래서 여기서도 넣는 순간을 가로챈다. */
+  host.querySelectorAll(".swmul").forEach(box=>{
+    const chips=$(box.dataset.for); if(!chips)return;
+    chips.classList.add("swsel");
+    const boxes=[...chips.querySelectorAll("input")];
+    const sync=()=>box.querySelectorAll(".swb").forEach(b=>{
+      const c=boxes.find(x=>x.value===b.dataset.v);
+      b.classList.toggle("on", !!(c&&CHKVAL.get.call(c)));
+    });
+    boxes.forEach(c=>Object.defineProperty(c,"checked",{configurable:true,
+      get(){return CHKVAL.get.call(this);},
+      set(v){CHKVAL.set.call(this,v); sync();}}));
+    box.querySelectorAll(".swb").forEach(b=>b.onclick=()=>{
+      const c=boxes.find(x=>x.value===b.dataset.v); if(!c)return;
+      c.checked=!c.checked;
+      c.dispatchEvent(new Event("change",{bubbles:true}));
+    });
+    chips.addEventListener("change",sync);
+    sync();
+  });
 }
 function build(P,host){
   host.innerHTML=G.map((g,i)=>
@@ -663,6 +800,7 @@ function build(P,host){
     const ev = el.tagName==="SELECT"||el.type==="checkbox" ? "change" : "input";
     el.addEventListener(ev,()=>preview(P));
   });
+  swBind(host);
 }
 function pick(P){
   const chk=$( P==="tA"?"cAchk":"cBchk"), txt=$(P==="tA"?"cA":"cB");
@@ -957,10 +1095,14 @@ fetch("/api/styling").then(r=>r.json()).then(s=>{
   $("kindA").addEventListener("change",()=>kindTouched=true);
   $("name").addEventListener("blur",guessKind);
 });
-fetch("/api/traits").then(r=>r.json()).then(g=>{
-  G=g; build("tA",$("tA")); build("tB",$("tB")); preview("tA"); preview("tB");
-  refreshSaved();
-});
+// 색 격자 그림을 먼저 받아 둔다. 못 받아도 화면은 뜬다 — 그때는 드롭다운이 나온다.
+fetch("/api/swatches").then(r=>r.json()).catch(()=>({}))
+ .then(s=>{SW=s||{};})
+ .then(()=>fetch("/api/traits").then(r=>r.json()))
+ .then(g=>{
+   G=g; build("tA",$("tA")); build("tB",$("tB")); preview("tA"); preview("tB");
+   refreshSaved();
+ });
 
 // ---------- 사진
 $("drop").onclick=()=>$("file").click();
@@ -1503,9 +1645,14 @@ class H(BaseHTTPRequestHandler):
 
     _cookie = ""
 
-    def js(self, obj, code=200):
-        self.send(code, json.dumps(obj, ensure_ascii=False).encode(),
-                  "application/json; charset=utf-8")
+    def js(self, obj, code=200, squeeze=False):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        # 칸 그림은 280KB 쯤 된다. 줄이면 30KB 라서 첫 화면이 눈에 띄게 빨라진다.
+        if squeeze and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            return self.send(code, gzip.compress(body, 6),
+                             "application/json; charset=utf-8",
+                             {"Content-Encoding": "gzip"})
+        self.send(code, body, "application/json; charset=utf-8")
 
     def body_json(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -1603,6 +1750,9 @@ class H(BaseHTTPRequestHandler):
 
         if path == "/api/traits":
             return self.js(gs.traits_json())
+        if path == "/api/swatches":
+            # 색으로 고르는 항목의 칸 그림. 없으면 빈 것을 주고 화면은 드롭다운을 쓴다.
+            return self.js(mic.swatches_json() if mic else {}, squeeze=True)
         if path == "/api/job":
             q = dict(p.split("=", 1) for p in self.path.split("?")[1].split("&")) \
                 if "?" in self.path else {}
